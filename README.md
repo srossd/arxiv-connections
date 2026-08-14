@@ -14,7 +14,7 @@ impostor.
 npm start          # http://localhost:8080
 ```
 
-No dependencies, no build step. Node 20+.
+One runtime dependency (the Redis client, used only when `REDIS_URL` is set) and no build step. Node 20+.
 
 ## How a puzzle is made
 
@@ -113,10 +113,53 @@ reload or a replay cannot skew the split. Guesses are only accepted for the
 *current* puzzle day, which stops yesterday's split from being stuffed after the
 fact.
 
-Guesses live in `data/stats/guesses-YYYY-MM-DD.json`, one file per day, written
-via a temp file and rename so a crash cannot truncate one. **This directory
-needs to be persistent** — on a platform with an ephemeral filesystem, point
-`ARXIV_STATS_DIR` at a mounted volume or the tallies reset on every restart.
+### Where the tallies live
+
+Two backends, same interface, chosen by whether `REDIS_URL` is set.
+
+**Files** (default). One JSON file per day in `ARXIV_STATS_DIR`, written via a
+temp file and rename so a crash cannot truncate one. **The directory must be
+persistent** — on an ephemeral filesystem the tallies reset on every restart.
+Correct for a single machine, and only for a single machine: a Fly volume
+attaches to exactly one machine, so scaling out would give each its own
+disconnected set of tallies.
+
+**Redis** (`REDIS_URL` set). Shared across machines. Recording a guess is a Lua
+script so the dedupe and the increment happen atomically:
+
+```lua
+local added = redis.call('SADD', KEYS[1], ARGV[1])   -- 1 only if this player is new
+if added == 1 then
+  redis.call('HINCRBY', KEYS[2], ARGV[2], 1)
+  redis.call('EXPIRE', KEYS[1], ARGV[3])
+  redis.call('EXPIRE', KEYS[2], ARGV[3])
+end
+return redis.call('HGETALL', KEYS[2])                -- the tally, in the same round trip
+```
+
+As two round trips there is a gap where a crash leaves a player recorded as
+having voted with no vote counted — permanently, since they can never vote
+again. Read-modify-write from the application would be worse, losing votes
+whenever two machines answered at once.
+
+Keys are namespaced (`REDIS_PREFIX`, default `axc`) and expire after 40 days.
+The client has `disableOfflineQueue` set and a 3-second ceiling on every
+command: without it, a Redis outage turns each guess into a hanging request
+instead of a fast failure. When Redis is unreachable the guess endpoints return
+503 and the game plays on without the split — the client already treats a failed
+share as "no split to show".
+
+Check a URL before trusting it with production:
+
+```
+REDIS_URL='rediss://…' npm run check-redis
+```
+
+It exercises the real store in a throwaway namespace — proving `EVAL` is
+permitted, the dedupe is atomic, and the threshold behaves — then cleans up.
+
+Switching backends does not migrate existing tallies; the day's counts start
+fresh, so switch just after the 2am rollover if that matters.
 
 ### API
 
@@ -222,10 +265,11 @@ src/categories.js       category pool, archive/confusable rules
 src/puzzle.js           puzzle day, seeded RNG, selection, cache
 src/grammar.js          template induction + fake-title generation
 src/fakes.js            grammar loading, one fake per category
-src/stats.js            per-day impostor guess tallies
+src/stats.js            impostor guess tallies (file backend + backend factory)
+src/stats-redis.js      the same tallies in Redis, for multiple machines
 public/                 index.html, styles.css, app.js, vendored KaTeX
 scripts/build-today.js  build a day's puzzle from the CLI
-scripts/harvest-corpus.js, scripts/build-grammars.js
+scripts/harvest-corpus.js, scripts/build-grammars.js, scripts/check-redis.js
 data/corpus/            harvested titles per category
 data/grammars/          compiled grammars (gzipped)
 data/stats/             recorded guesses, one file per day (runtime data)
@@ -239,7 +283,9 @@ test/                   node --test
 | `PORT` | `8080` | HTTP port |
 | `HOST` | `0.0.0.0` | bind address |
 | `ARXIV_CACHE_DIR` | `./cache` | where daily puzzles are written |
-| `ARXIV_STATS_DIR` | `./data/stats` | recorded impostor guesses (**needs to persist**) |
+| `ARXIV_STATS_DIR` | `./data/stats` | recorded guesses, file backend (**needs to persist**) |
+| `REDIS_URL` | unset | when set, tallies go to Redis instead of files |
+| `REDIS_PREFIX` | `axc` | key namespace, so one Redis can back several deployments |
 
 | `ARXIV_GRAMMAR_DIR` | `./data/grammars` | compiled grammars |
 
@@ -272,5 +318,15 @@ math-span preservation, the cache/fallback behaviour with the network stubbed
 out, grammar induction (determinism, no regurgitation of real titles, no severed
 math, junk fragments kept out of slots), and the guess tallies (threshold,
 one-vote-per-player, per-group independence, persistence, input validation, and
-concurrent writes). The gameplay of both rounds, the stats panel and the vote
-split were verified separately in a headless browser.
+concurrent writes). The Redis backend runs the same suite plus two cases only it
+can fail — the same player voting concurrently, and two store instances (standing
+in for two machines) sharing one tally:
+
+```
+docker run -d -p 6380:6379 redis:7-alpine
+REDIS_URL=redis://localhost:6380 npm test
+```
+
+Those tests skip when `REDIS_URL` is unset. The gameplay of both rounds, the
+stats panel and the vote split were verified separately in a headless browser,
+against both backends.

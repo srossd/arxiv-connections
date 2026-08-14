@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
 import { PuzzleStore, puzzleDayFor, msUntilRollover } from './src/puzzle.js';
-import { GuessStore } from './src/stats.js';
+import { createGuessStore } from './src/stats.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -14,7 +14,9 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 const STATS_DIR = process.env.ARXIV_STATS_DIR ?? path.join(ROOT, 'data', 'stats');
 
 const store = new PuzzleStore(CACHE_DIR);
-const guesses = new GuessStore(STATS_DIR);
+// Redis when REDIS_URL is set, so several machines share one set of tallies;
+// otherwise a file per day beside the cache.
+const guesses = await createGuessStore({ redisUrl: process.env.REDIS_URL, dir: STATS_DIR });
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -39,6 +41,20 @@ function sendJson(res, status, body, headers = {}) {
 }
 
 const MAX_BODY_BYTES = 2048;
+
+/**
+ * A malformed guess is the caller's fault; an unreachable Redis is ours, and
+ * reporting that as 400 would tell the client to stop trying. The game treats
+ * either as "no split to show", so neither breaks play.
+ */
+function respondToStatsError(res, error) {
+  const clientError = error.message === 'bad request' || error.message === 'invalid JSON'
+    || error.message === 'body too large';
+  if (!clientError) console.warn('[stats] request failed:', error.message);
+  sendJson(res, clientError ? 400 : 503,
+    { error: clientError ? error.message : 'Guess tallies are unavailable right now.' },
+    { 'Cache-Control': 'no-store' });
+}
 
 /** Reads a small JSON body, refusing anything oversized. */
 function readJsonBody(req) {
@@ -111,7 +127,7 @@ const server = http.createServer(async (req, res) => {
       const tally = await guesses.record(body.day, body.player, body.group, body.pick);
       sendJson(res, 200, tally, { 'Cache-Control': 'no-store' });
     } catch (error) {
-      sendJson(res, 400, { error: error.message }, { 'Cache-Control': 'no-store' });
+      respondToStatsError(res, error);
     }
     return;
   }
@@ -126,7 +142,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, await guesses.tallies(searchParams.get('day') ?? puzzleDayFor()),
         { 'Cache-Control': 'no-store' });
     } catch (error) {
-      sendJson(res, 400, { error: error.message }, { 'Cache-Control': 'no-store' });
+      respondToStatsError(res, error);
     }
     return;
   }
@@ -150,6 +166,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`arXiv Connections on http://localhost:${PORT}  (puzzle day ${puzzleDayFor()})`);
+  console.log(`  guess tallies: ${process.env.REDIS_URL ? 'redis' : `files in ${STATS_DIR}`}`);
   // Warm the cache so the first visitor of the day doesn't wait on arXiv.
   store.get().catch((error) => console.warn('[warmup]', error.message));
 });

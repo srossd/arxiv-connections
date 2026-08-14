@@ -1,0 +1,15 @@
+.git
+.gitignore
+node_modules
+
+# 31 MB of harvested titles: only needed to rebuild grammars, never at runtime.
+# Not in git either, but fly deploy uploads the working directory, not the tree.
+data/corpus
+
+# Runtime state; lives on the Fly volume, not in the image.
+cache
+data/stats
+
+# Not needed to serve the game.
+test
+README.md

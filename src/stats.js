@@ -11,12 +11,23 @@ import path from 'node:path';
 
 export const MIN_RESPONDENTS = 10;   // below this a group's split stays hidden
 const MAX_PLAYERS_PER_DAY = 20_000;  // guard against a runaway file
-const GROUPS = 4;
-const OPTIONS = 4;
+export const GROUPS = 4;
+export const OPTIONS = 4;
 
 export const isValidDay = (day) => typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day);
 export const isValidPlayer = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id);
-const isIndex = (n, max) => Number.isInteger(n) && n >= 0 && n < max;
+export const isIndex = (n, max) => Number.isInteger(n) && n >= 0 && n < max;
+
+/**
+ * The wire shape of one group's tally, shared by both backends.
+ * Counts stay hidden below the threshold so a small sample cannot be read off
+ * the wire before it is meaningful.
+ */
+export function shapeTally(group, counts) {
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  const enough = total >= MIN_RESPONDENTS;
+  return enough ? { group, total, enough, counts } : { group, total, enough };
+}
 
 export class GuessStore {
   constructor(dir) {
@@ -89,15 +100,11 @@ export class GuessStore {
 
   #tallyFor(data, group) {
     const counts = new Array(OPTIONS).fill(0);
-    let total = 0;
     for (const picks of Object.values(data.players)) {
       const pick = picks?.[group];
-      if (isIndex(pick, OPTIONS)) { counts[pick]++; total++; }
+      if (isIndex(pick, OPTIONS)) counts[pick]++;
     }
-    const enough = total >= MIN_RESPONDENTS;
-    // Counts stay hidden below the threshold so a small sample cannot be read
-    // off the wire before it is meaningful.
-    return enough ? { group, total, enough, counts } : { group, total, enough };
+    return shapeTally(group, counts);
   }
 
   /** Tallies for every group of a day. */
@@ -113,4 +120,16 @@ export class GuessStore {
   async flush() {
     await this.writes;
   }
+}
+
+/**
+ * Picks a backend: Redis when a URL is configured (so several machines share
+ * one set of tallies), otherwise a file per day on local disk.
+ */
+export async function createGuessStore({ redisUrl, dir }) {
+  if (redisUrl) {
+    const { RedisGuessStore } = await import('./stats-redis.js');
+    return new RedisGuessStore(redisUrl);
+  }
+  return new GuessStore(dir);
 }

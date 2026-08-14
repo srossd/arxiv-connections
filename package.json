@@ -12,6 +12,10 @@
     "build-today": "node scripts/build-today.js",
     "test": "node --test",
     "harvest": "node scripts/harvest-corpus.js",
-    "build-grammars": "node scripts/build-grammars.js"
+    "build-grammars": "node scripts/build-grammars.js",
+    "check-redis": "node scripts/check-redis.js"
+  },
+  "dependencies": {
+    "redis": "^4.7.1"
   }
 }
