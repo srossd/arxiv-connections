@@ -483,8 +483,9 @@ function accuse(groupIndex, paperIndex) {
   shareGuess(groupIndex, paperIndex);
   if (roundsComplete()) {
     setStatus(summary(), impostorsCaught() === huntableGroups().length ? 'good' : null);
-    // Only on the transition, never on a reload of an already-finished game.
-    setTimeout(openStats, 700);
+    // Only on the transition, never on a reload of an already-finished game --
+    // and not after a replay, whose result is not the one on record.
+    if (!state.replaying) setTimeout(openStats, 700);
   } else {
     setStatus(right ? 'Impostor caught.' : 'No — that paper is real.', right ? 'good' : 'alert');
   }
