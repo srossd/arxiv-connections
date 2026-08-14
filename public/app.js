@@ -24,6 +24,7 @@ const el = {
   statsGrid: document.getElementById('statsGrid'),
   statsNote: document.getElementById('statsNote'),
   clearStats: document.getElementById('clearStats'),
+  playAgain: document.getElementById('playAgain'),
 };
 
 /**
@@ -50,6 +51,9 @@ const state = {
   // groupIndex -> { total, enough, counts } : how everyone else voted. Only
   // arrives once a group has enough respondents to be worth showing.
   splits: {},
+  // True once today's puzzle has been replayed. The first result of the day is
+  // the one that counts, so a replay is practice.
+  replaying: false,
 };
 
 const isWon = () => state.solved.length === GROUP_SIZE;
@@ -290,6 +294,11 @@ function renderControls() {
     return dot;
   }));
   const over = isOver();
+  // The three play controls are inert once the game is over, so hand their
+  // space to Play again rather than showing four buttons, three of them dead.
+  for (const button of [el.shuffle, el.deselect, el.check]) button.hidden = over;
+  el.playAgain.hidden = !over;
+
   el.check.disabled = over || state.selected.size !== GROUP_SIZE;
   el.deselect.disabled = over || state.selected.size === 0;
   el.shuffle.disabled = over;
@@ -349,6 +358,9 @@ function recordResult() {
   if (!state.puzzle || !isOver()) return;
   try {
     const results = loadResults();
+    // First finish of the day wins. Without this a replay would rewrite
+    // history, and "perfect games" would mean nothing more than persistence.
+    if (state.replaying && results[state.puzzle.day]) return;
     const accused = huntableGroups().filter((g) => state.impostors[g] !== undefined).length;
     results[state.puzzle.day] = {
       groups: state.solved.length,
@@ -386,6 +398,7 @@ function save() {
       guesses: state.guesses,
       lost: state.lost,
       impostors: state.impostors,
+      replaying: state.replaying,
     }));
   } catch { /* private browsing, quota — the game still works, just not resumable */ }
 }
@@ -399,6 +412,7 @@ function restore(day) {
     state.strikes = Math.min(MAX_STRIKES, Math.max(0, saved.strikes | 0));
     state.guesses = Array.isArray(saved.guesses) ? saved.guesses : [];
     state.lost = Boolean(saved.lost) || state.strikes >= MAX_STRIKES;
+    state.replaying = Boolean(saved.replaying);
     if (saved.impostors && typeof saved.impostors === 'object') {
       for (const [group, pick] of Object.entries(saved.impostors)) {
         const g = Number(group);
@@ -575,6 +589,37 @@ function renderStats() {
   el.clearStats.hidden = played === 0;
 }
 
+/**
+ * Starts today's puzzle over: same sixteen titles, same groups, same impostors.
+ * Offered only once the game is finished, so it cannot be used to duck a strike.
+ */
+function playAgain() {
+  const banked = Boolean(loadResults()[state.puzzle.day]);
+  const confirmed = window.confirm(
+    banked
+      ? 'Play today\'s puzzle again? Your recorded result for today stands, so this round is just for fun.'
+      : 'Play today\'s puzzle again?',
+  );
+  if (!confirmed) return;
+
+  state.solved = [];
+  state.strikes = 0;
+  state.guesses = [];
+  state.lost = false;
+  state.impostors = {};
+  state.splits = {};
+  state.selected.clear();
+  state.replaying = true;
+  state.order = Array.isArray(state.puzzle.order) && state.puzzle.order.length === state.tiles.length
+    ? state.puzzle.order.slice()
+    : state.tiles.map((_, i) => i);
+
+  save();
+  renderAll();
+  setStatus(banked ? 'Replaying today\'s puzzle — your recorded result stands.' : '');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function clearStats() {
   const { played } = aggregateStats();
   if (!played) return;
@@ -597,6 +642,7 @@ function openStats() {
 
 el.statsBtn.addEventListener('click', openStats);
 el.clearStats.addEventListener('click', clearStats);
+el.playAgain.addEventListener('click', playAgain);
 
 // ------------------------------------------------------------------- start
 

@@ -78,7 +78,10 @@ body {
 
 .slots {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* minmax(0, …) rather than 1fr: a bare 1fr floors each track at its
+     min-content width, and a category id like "astro-ph.SR" does not break, so
+     four of them overflowed a 320px screen once the groups were revealed. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.5rem;
   max-width: 78rem;
   margin: 0 auto 1.25rem;
@@ -92,6 +95,8 @@ body {
 
 .slot {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   align-items: center;
