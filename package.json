@@ -1,0 +1,17 @@
+{
+  "name": "arxiv-connections",
+  "version": "1.0.0",
+  "description": "A daily NYT-Connections-style puzzle built from the titles of papers announced on arXiv.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "build-today": "node scripts/build-today.js",
+    "test": "node --test",
+    "harvest": "node scripts/harvest-corpus.js",
+    "build-grammars": "node scripts/build-grammars.js"
+  }
+}

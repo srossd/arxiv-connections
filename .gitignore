@@ -1,0 +1,8 @@
+node_modules/
+cache/
+
+# Harvested titles are large and fully regenerable from arXiv:
+#   npm run harvest && npm run build-grammars
+# The compiled grammars in data/grammars/ ARE committed — they are what the
+# server reads at runtime, and rebuilding them means re-harvesting.
+data/corpus/
