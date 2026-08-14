@@ -6,3 +6,6 @@ cache/
 # The compiled grammars in data/grammars/ ARE committed — they are what the
 # server reads at runtime, and rebuilding them means re-harvesting.
 data/corpus/
+
+# Recorded impostor guesses (runtime data, per deployment).
+data/stats/

@@ -77,6 +77,54 @@ cost a mistake, and a 3-of-4 guess says *One away…*.
 
 Progress is kept in `localStorage` per day, so a reload resumes the same game.
 
+## Stats
+
+**Your own**, from the *Stats* button, kept in `localStorage` and never sent
+anywhere:
+
+- **Perfect games** — every group found with no mistakes *and* every impostor
+  caught, over games played.
+- **Average connection mistakes** — wrong groups per game.
+- **Average impostor mistakes** — wrong accusations per game.
+
+A game counts once its first round is over, won or lost; the impostor numbers
+keep updating as you accuse, so an unfinished hunt is not held against you until
+you make the guess. The panel opens itself when you finish both rounds.
+
+**Everyone's**, shown under a group once you have accused: the share of players
+who picked each of its four titles.
+
+```
+Quantum cohomology of Calabi-Yau varieties   [impostor]     62%
+Tropical and algebraic elliptic plane curves [your guess]   38%
+```
+
+The split for a group stays hidden until **10 people** have accused in that
+group — counted per group, so the denominator is always the people who actually
+answered that question. Below the threshold the server does not send the counts
+at all, so an early sample cannot be read off the wire; the group shows how many
+more players are needed instead.
+
+The browser generates a random id for itself (`arxiv-connections:player`) so the
+server can count each player once. That is the only thing stored about a player:
+a random string and up to four small integers. A player's first answer for a
+group is final — later submissions are ignored rather than overwriting, so a
+reload or a replay cannot skew the split. Guesses are only accepted for the
+*current* puzzle day, which stops yesterday's split from being stuffed after the
+fact.
+
+Guesses live in `data/stats/guesses-YYYY-MM-DD.json`, one file per day, written
+via a temp file and rename so a crash cannot truncate one. **This directory
+needs to be persistent** — on a platform with an ephemeral filesystem, point
+`ARXIV_STATS_DIR` at a mounted volume or the tallies reset on every restart.
+
+### API
+
+| | |
+| --- | --- |
+| `POST /api/guess` | `{day, player, group, pick}` -> that group's tally |
+| `GET /api/guesses?day=…` | tallies for every group of a day |
+
 ## Titles and LaTeX
 
 Titles are rendered with **KaTeX**, vendored into
@@ -174,11 +222,13 @@ src/categories.js       category pool, archive/confusable rules
 src/puzzle.js           puzzle day, seeded RNG, selection, cache
 src/grammar.js          template induction + fake-title generation
 src/fakes.js            grammar loading, one fake per category
+src/stats.js            per-day impostor guess tallies
 public/                 index.html, styles.css, app.js, vendored KaTeX
 scripts/build-today.js  build a day's puzzle from the CLI
 scripts/harvest-corpus.js, scripts/build-grammars.js
 data/corpus/            harvested titles per category
 data/grammars/          compiled grammars (gzipped)
+data/stats/             recorded guesses, one file per day (runtime data)
 test/                   node --test
 ```
 
@@ -189,6 +239,7 @@ test/                   node --test
 | `PORT` | `8080` | HTTP port |
 | `HOST` | `0.0.0.0` | bind address |
 | `ARXIV_CACHE_DIR` | `./cache` | where daily puzzles are written |
+| `ARXIV_STATS_DIR` | `./data/stats` | recorded impostor guesses (**needs to persist**) |
 
 | `ARXIV_GRAMMAR_DIR` | `./data/grammars` | compiled grammars |
 
@@ -218,6 +269,8 @@ npm test
 
 Covers the 2 am rollover across EST and EDT, the category rules, TeX folding and
 math-span preservation, the cache/fallback behaviour with the network stubbed
-out, and grammar induction (determinism, no regurgitation of real titles, no
-severed math, junk fragments kept out of slots). The gameplay of both rounds and
-the layout were verified separately in a headless browser.
+out, grammar induction (determinism, no regurgitation of real titles, no severed
+math, junk fragments kept out of slots), and the guess tallies (threshold,
+one-vote-per-player, per-group independence, persistence, input validation, and
+concurrent writes). The gameplay of both rounds, the stats panel and the vote
+split were verified separately in a headless browser.

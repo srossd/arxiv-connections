@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
 import { PuzzleStore, puzzleDayFor, msUntilRollover } from './src/puzzle.js';
+import { GuessStore } from './src/stats.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -10,7 +11,10 @@ const CACHE_DIR = process.env.ARXIV_CACHE_DIR ?? path.join(ROOT, 'cache');
 const PORT = Number(process.env.PORT ?? 8080);
 const HOST = process.env.HOST ?? '0.0.0.0';
 
+const STATS_DIR = process.env.ARXIV_STATS_DIR ?? path.join(ROOT, 'data', 'stats');
+
 const store = new PuzzleStore(CACHE_DIR);
+const guesses = new GuessStore(STATS_DIR);
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -32,6 +36,33 @@ function sendJson(res, status, body, headers = {}) {
     ...headers,
   });
   res.end(payload);
+}
+
+const MAX_BODY_BYTES = 2048;
+
+/** Reads a small JSON body, refusing anything oversized. */
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        reject(new Error('invalid JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 async function serveStatic(req, res, urlPath) {
@@ -65,12 +96,40 @@ async function serveStatic(req, res, urlPath) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed');
+  const { pathname, searchParams } = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+
+  if (req.method === 'POST' && pathname === '/api/guess') {
+    try {
+      const body = await readJsonBody(req);
+      // Only the live puzzle accepts guesses: without this, the day is
+      // attacker-chosen and yesterday's split could be stuffed after the fact.
+      if (body?.day !== puzzleDayFor()) {
+        sendJson(res, 409, { error: 'That puzzle is no longer open for guesses.' },
+          { 'Cache-Control': 'no-store' });
+        return;
+      }
+      const tally = await guesses.record(body.day, body.player, body.group, body.pick);
+      sendJson(res, 200, tally, { 'Cache-Control': 'no-store' });
+    } catch (error) {
+      sendJson(res, 400, { error: error.message }, { 'Cache-Control': 'no-store' });
+    }
     return;
   }
 
-  const { pathname } = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { Allow: 'GET, HEAD, POST' }).end('Method not allowed');
+    return;
+  }
+
+  if (pathname === '/api/guesses') {
+    try {
+      sendJson(res, 200, await guesses.tallies(searchParams.get('day') ?? puzzleDayFor()),
+        { 'Cache-Control': 'no-store' });
+    } catch (error) {
+      sendJson(res, 400, { error: error.message }, { 'Cache-Control': 'no-store' });
+    }
+    return;
+  }
 
   if (pathname === '/api/puzzle') {
     try {

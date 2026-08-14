@@ -424,7 +424,7 @@ body {
 
 .verdict {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
   gap: 0.4rem;
   padding: 0.4rem 0.6rem;
@@ -432,6 +432,12 @@ body {
   border-radius: 9px;
   font-size: 0.9rem;
 }
+
+/* Takes the leftover width so the share stays on the first line. min-width:0
+   lets a long title wrap inside it rather than overflowing the row. */
+.verdict__main { flex: 1; min-width: 0; }
+
+.verdict__main .chip { vertical-align: baseline; }
 
 .verdict--fake { background: rgb(20 20 15 / 12%); border-color: rgb(20 20 15 / 35%); }
 .verdict--wrong { border-color: rgb(20 20 15 / 35%); border-style: dashed; }
@@ -449,3 +455,114 @@ body {
 
 .chip--fake { background: #14140f; color: #fff; }
 .chip--miss { background: rgb(20 20 15 / 20%); color: #14140f; }
+
+/* ---------- stats ---------- */
+
+.masthead { position: relative; }
+
+.statsbtn {
+  position: absolute;
+  top: 1.1rem;
+  right: 0;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .statsbtn:hover { color: var(--ink); border-color: var(--ink-soft); }
+}
+
+.statsbtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.statsdialog {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.statsdialog::backdrop { background: rgb(20 20 15 / 45%); }
+
+.statsdialog h2 {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+
+.statsgrid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.85rem 1rem;
+  align-items: baseline;
+  margin: 0 0 1rem;
+}
+
+.statsgrid dt { font-weight: 600; font-size: 0.9rem; }
+.statsgrid dt small { display: block; font-weight: 400; font-size: 0.75rem; color: var(--ink-soft); }
+
+.statsgrid dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.statsdialog__note {
+  margin: 0 0 1.1rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.statsdialog form { display: flex; justify-content: flex-end; }
+
+/* ---------- how everyone else voted ---------- */
+
+.verdict { position: relative; overflow: hidden; }
+
+/* A bar behind the row, sized to this option's share of the vote. Sits under
+   the text and never changes the row's height. */
+.verdict--shared::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--share, 0%);
+  background: rgb(20 20 15 / 13%);
+  border-radius: 9px 0 0 9px;
+  pointer-events: none;
+}
+
+.verdict--shared > * { position: relative; }
+
+.share {
+  flex: 0 0 auto;
+  padding-left: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.solved__note {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+@media (max-width: 640px) {
+  .statsbtn { top: 0.35rem; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+  .masthead h1 { padding-top: 1.4rem; }
+}

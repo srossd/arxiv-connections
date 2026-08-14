@@ -12,6 +12,7 @@
 </head>
 <body>
 <header class="masthead">
+  <button type="button" id="statsBtn" class="statsbtn" aria-haspopup="dialog">Stats</button>
   <h1>arXiv <span>Connections</span></h1>
   <p class="masthead__sub">
     Find the four groups of papers that share an arXiv category.
@@ -47,6 +48,15 @@
     </div>
   </div>
 </div>
+
+<dialog id="statsDialog" class="statsdialog" aria-labelledby="statsTitle">
+  <h2 id="statsTitle">Your stats</h2>
+  <dl class="statsgrid" id="statsGrid"></dl>
+  <p class="statsdialog__note" id="statsNote"></p>
+  <form method="dialog">
+    <button class="btn btn--primary" autofocus>Close</button>
+  </form>
+</dialog>
 
 <footer class="colophon">
   <p>

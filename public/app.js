@@ -3,6 +3,7 @@
 const GROUP_SIZE = 4;
 const MAX_STRIKES = 4;
 const REVEAL_DELAY = 420;
+const MIN_RESPONDENTS = 10;   // mirrors the server; only used for the wording
 const WIN_MESSAGE = 'All four — nicely done.';
 const LOSS_MESSAGE = 'Four mistakes — here were the four categories.';
 
@@ -19,6 +20,10 @@ const el = {
   check: document.getElementById('check'),
   shuffle: document.getElementById('shuffle'),
   deselect: document.getElementById('deselect'),
+  statsBtn: document.getElementById('statsBtn'),
+  statsDialog: document.getElementById('statsDialog'),
+  statsGrid: document.getElementById('statsGrid'),
+  statsNote: document.getElementById('statsNote'),
 };
 
 /**
@@ -42,6 +47,9 @@ const state = {
   // accused of being the fake. One accusation per group, and only once the
   // group is on the board.
   impostors: {},
+  // groupIndex -> { total, enough, counts } : how everyone else voted. Only
+  // arrives once a group has enough respondents to be worth showing.
+  splits: {},
 };
 
 const isWon = () => state.solved.length === GROUP_SIZE;
@@ -203,8 +211,14 @@ function renderSolved() {
       if (index === fakeIndex) row.classList.add('verdict--fake');
       if (index === accused && index !== fakeIndex) row.classList.add('verdict--wrong');
 
+      // Title and chip share one inline wrapper so a wrapped title cannot push
+      // the percentage onto a line of its own.
+      const main = document.createElement('span');
+      main.className = 'verdict__main';
+      row.append(main);
+
       if (paper.fake) {
-        row.append(mathText('span', paper.title, 'verdict__text'));
+        main.append(mathText('span', paper.title, 'verdict__text'));
       } else {
         const link = document.createElement('a');
         link.href = paper.url;
@@ -212,19 +226,31 @@ function renderSolved() {
         link.rel = 'noopener';
         link.textContent = paper.title;
         renderMath(link);
-        row.append(link);
+        main.append(link);
       }
 
       if (index === fakeIndex) {
         const chip = document.createElement('span');
         chip.className = 'chip chip--fake';
         chip.textContent = index === accused ? 'impostor — caught' : 'impostor';
-        row.append(chip);
+        main.append(' ', chip);
       } else if (index === accused) {
         const chip = document.createElement('span');
         chip.className = 'chip chip--miss';
         chip.textContent = 'your guess';
-        row.append(chip);
+        main.append(' ', chip);
+      }
+
+      const split = state.splits[groupIndex];
+      if (split?.enough && split.total > 0) {
+        const percent = Math.round((split.counts[index] / split.total) * 100);
+        row.classList.add('verdict--shared');
+        row.style.setProperty('--share', `${percent}%`);
+        const share = document.createElement('span');
+        share.className = 'share';
+        share.textContent = `${percent}%`;
+        share.title = `${split.counts[index]} of ${split.total} players picked this`;
+        row.append(share);
       }
 
       item.append(row);
@@ -234,6 +260,16 @@ function renderSolved() {
     box.append(heading);
     if (prompt.textContent) box.append(prompt);
     box.append(list);
+
+    const split = state.splits[groupIndex];
+    if (decided && huntable && split && !split.enough) {
+      const note = document.createElement('p');
+      note.className = 'solved__note';
+      const need = MIN_RESPONDENTS - split.total;
+      note.textContent = `How everyone else voted appears once ${MIN_RESPONDENTS} people have played today`
+        + (need > 0 ? ` — ${need} to go.` : '.');
+      box.append(note);
+    }
     return box;
   }));
 }
@@ -284,6 +320,73 @@ function renderAll() {
 // ------------------------------------------------------------- persistence
 
 const storageKey = (day) => `arxiv-connections:${day}`;
+const PLAYER_KEY = 'arxiv-connections:player';
+const RESULTS_KEY = 'arxiv-connections:results';
+
+/**
+ * A random id this browser keeps for itself, so the server can count each
+ * player once without knowing anything about them.
+ */
+function playerId() {
+  try {
+    let id = localStorage.getItem(PLAYER_KEY);
+    if (!id || !/^[A-Za-z0-9_-]{8,64}$/.test(id)) {
+      id = (crypto.randomUUID?.() ?? `p-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`)
+        .replace(/[^A-Za-z0-9_-]/g, '');
+      localStorage.setItem(PLAYER_KEY, id);
+    }
+    return id;
+  } catch {
+    return null;   // storage blocked: play on, just don't contribute to the split
+  }
+}
+
+function loadResults() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RESULTS_KEY) ?? '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Records the finished game for the personal stats. Only games whose first
+ * round is over are counted; impostor numbers keep updating as accusations
+ * come in, so the row is rewritten rather than appended to.
+ */
+function recordResult() {
+  if (!state.puzzle || !isOver()) return;
+  try {
+    const results = loadResults();
+    const accused = huntableGroups().filter((g) => state.impostors[g] !== undefined).length;
+    results[state.puzzle.day] = {
+      groups: state.solved.length,
+      strikes: state.strikes,
+      huntable: huntableGroups().length,
+      accused,
+      caught: impostorsCaught(),
+    };
+    localStorage.setItem(RESULTS_KEY, JSON.stringify(results));
+  } catch { /* storage blocked; stats simply will not accumulate */ }
+}
+
+/** A perfect game: every group found with no mistakes, and every impostor caught. */
+const isPerfect = (row) =>
+  row.groups === GROUP_SIZE && row.strikes === 0
+  && row.huntable > 0 && row.caught === row.huntable;
+
+function aggregateStats() {
+  const rows = Object.values(loadResults());
+  const played = rows.length;
+  const mean = (pick) => (played ? rows.reduce((sum, row) => sum + pick(row), 0) / played : 0);
+  return {
+    played,
+    perfect: rows.filter(isPerfect).length,
+    connectionMistakes: mean((row) => row.strikes),
+    impostorMistakes: mean((row) => Math.max(0, row.accused - row.caught)),
+  };
+}
 
 function save() {
   try {
@@ -335,15 +438,52 @@ function loseGame() {
   setStatus(LOSS_MESSAGE, 'alert');
 }
 
+/** Sends this accusation and folds the resulting split into the board. */
+async function shareGuess(groupIndex, paperIndex) {
+  const player = playerId();
+  if (!player) return;
+  try {
+    const response = await fetch('api/guess', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ day: state.puzzle.day, player, group: groupIndex, pick: paperIndex }),
+    });
+    if (!response.ok) return;
+    state.splits[groupIndex] = await response.json();
+    renderAll();
+  } catch { /* offline or blocked: the game does not depend on this */ }
+}
+
+/** On reload, recover the splits for groups already accused. */
+async function loadSplits() {
+  if (!huntableGroups().some((g) => state.impostors[g] !== undefined)) return;
+  try {
+    const response = await fetch(`api/guesses?day=${encodeURIComponent(state.puzzle.day)}`);
+    if (!response.ok) return;
+    const { groups } = await response.json();
+    for (const [group, tally] of Object.entries(groups ?? {})) {
+      if (state.impostors[Number(group)] !== undefined) state.splits[Number(group)] = tally;
+    }
+    renderAll();
+  } catch { /* leave the splits unshown */ }
+}
+
 function accuse(groupIndex, paperIndex) {
   if (!hasImpostor(groupIndex)) return;
   if (state.impostors[groupIndex] !== undefined) return;
   state.impostors[groupIndex] = paperIndex;
   const right = caughtImpostor(groupIndex);
   save();
+  recordResult();
   renderAll();
-  if (roundsComplete()) setStatus(summary(), impostorsCaught() === GROUP_SIZE ? 'good' : null);
-  else setStatus(right ? 'Impostor caught.' : 'No — that paper is real.', right ? 'good' : 'alert');
+  shareGuess(groupIndex, paperIndex);
+  if (roundsComplete()) {
+    setStatus(summary(), impostorsCaught() === huntableGroups().length ? 'good' : null);
+    // Only on the transition, never on a reload of an already-finished game.
+    setTimeout(openStats, 700);
+  } else {
+    setStatus(right ? 'Impostor caught.' : 'No — that paper is real.', right ? 'good' : 'alert');
+  }
 }
 
 function check() {
@@ -375,6 +515,7 @@ function check() {
       'good',
     );
     save();
+    recordResult();
     setTimeout(renderAll, REVEAL_DELAY);
     return;
   }
@@ -393,6 +534,7 @@ function check() {
       renderAll();
       setStatus(`${LOSS_MESSAGE} You can still hunt the impostors.`, 'alert');
       save();
+      recordResult();
     }, REVEAL_DELAY);
     save();
     return;
@@ -408,6 +550,46 @@ function shuffleVisible() {
   }
   renderGrid();
 }
+
+// ------------------------------------------------------------------ stats UI
+
+const oneDecimal = (n) => (Math.round(n * 10) / 10).toFixed(1);
+
+function renderStats() {
+  const { played, perfect, connectionMistakes, impostorMistakes } = aggregateStats();
+
+  const rows = [
+    ['Perfect games', played ? `${perfect} / ${played}` : '—',
+      'Every group found with no mistakes, and every impostor caught'],
+    ['Average connection mistakes', played ? oneDecimal(connectionMistakes) : '—',
+      'Wrong groups per game, out of four allowed'],
+    ['Average impostor mistakes', played ? oneDecimal(impostorMistakes) : '—',
+      'Wrong accusations per game'],
+  ];
+
+  el.statsGrid.replaceChildren(...rows.flatMap(([label, value, hint]) => {
+    const dt = document.createElement('dt');
+    dt.textContent = label;
+    const small = document.createElement('small');
+    small.textContent = hint;
+    dt.append(small);
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    return [dt, dd];
+  }));
+
+  el.statsNote.textContent = played
+    ? `Based on ${played} ${played === 1 ? 'day' : 'days'} played on this device.`
+    : 'Finish today\'s puzzle and your stats will appear here.';
+}
+
+function openStats() {
+  renderStats();
+  if (typeof el.statsDialog.showModal === 'function') el.statsDialog.showModal();
+  else el.statsDialog.setAttribute('open', '');
+}
+
+el.statsBtn.addEventListener('click', openStats);
 
 // ------------------------------------------------------------------- start
 
@@ -468,7 +650,9 @@ async function start() {
   el.board.removeAttribute('aria-busy');
   renderAll();
 
-  if (roundsComplete()) setStatus(summary(), impostorsCaught() === GROUP_SIZE ? 'good' : null);
+  loadSplits();
+
+  if (roundsComplete()) setStatus(summary(), impostorsCaught() === huntableGroups().length ? 'good' : null);
   else if (isWon()) setStatus(`${WIN_MESSAGE} Now find the impostors.`, 'good');
   else if (state.lost) setStatus(`${LOSS_MESSAGE} You can still hunt the impostors.`, 'alert');
 }
