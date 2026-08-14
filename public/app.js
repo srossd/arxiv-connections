@@ -3,7 +3,6 @@
 const GROUP_SIZE = 4;
 const MAX_STRIKES = 4;
 const REVEAL_DELAY = 420;
-const MIN_RESPONDENTS = 10;   // mirrors the server; only used for the wording
 const WIN_MESSAGE = 'All four — nicely done.';
 const LOSS_MESSAGE = 'Four mistakes — here were the four categories.';
 
@@ -24,6 +23,7 @@ const el = {
   statsDialog: document.getElementById('statsDialog'),
   statsGrid: document.getElementById('statsGrid'),
   statsNote: document.getElementById('statsNote'),
+  clearStats: document.getElementById('clearStats'),
 };
 
 /**
@@ -260,16 +260,6 @@ function renderSolved() {
     box.append(heading);
     if (prompt.textContent) box.append(prompt);
     box.append(list);
-
-    const split = state.splits[groupIndex];
-    if (decided && huntable && split && !split.enough) {
-      const note = document.createElement('p');
-      note.className = 'solved__note';
-      const need = MIN_RESPONDENTS - split.total;
-      note.textContent = `How everyone else voted appears once ${MIN_RESPONDENTS} people have played today`
-        + (need > 0 ? ` — ${need} to go.` : '.');
-      box.append(note);
-    }
     return box;
   }));
 }
@@ -581,6 +571,22 @@ function renderStats() {
   el.statsNote.textContent = played
     ? `Based on ${played} ${played === 1 ? 'day' : 'days'} played on this device.`
     : 'Finish today\'s puzzle and your stats will appear here.';
+  // Nothing to clear on a fresh device, so do not offer it.
+  el.clearStats.hidden = played === 0;
+}
+
+function clearStats() {
+  const { played } = aggregateStats();
+  if (!played) return;
+  const confirmed = window.confirm(
+    `Clear your stats? This erases ${played} ${played === 1 ? 'day' : 'days'} of results `
+    + 'on this device and cannot be undone. Today\'s game in progress is not affected.',
+  );
+  if (!confirmed) return;
+  try {
+    localStorage.removeItem(RESULTS_KEY);
+  } catch { /* storage blocked; there was nothing to clear */ }
+  renderStats();
 }
 
 function openStats() {
@@ -590,6 +596,7 @@ function openStats() {
 }
 
 el.statsBtn.addEventListener('click', openStats);
+el.clearStats.addEventListener('click', clearStats);
 
 // ------------------------------------------------------------------- start
 
@@ -611,8 +618,16 @@ el.deselect.addEventListener('click', () => {
   renderControls();
 });
 
-function describeDate(announcedOn) {
-  const parsed = new Date(announcedOn);
+/**
+ * Formats the puzzle's own day (YYYY-MM-DD).
+ *
+ * The feed's pubDate is not used for this: arXiv relabels the RSS at midnight
+ * Eastern while the game rolls over at 2am, so for those two hours the feed
+ * already carries tomorrow's date. Showing the puzzle day keeps the header
+ * consistent with the puzzle you are actually playing.
+ */
+function describeDay(day) {
+  const parsed = new Date(`${day}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) return '';
   return parsed.toLocaleDateString(undefined, {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
@@ -640,7 +655,7 @@ async function start() {
 
   restore(puzzle.day);
 
-  const when = describeDate(puzzle.announcedOn);
+  const when = describeDay(puzzle.day);
   el.announced.textContent = when
     ? `Papers announced ${when}${puzzle.stale ? ' (arXiv unreachable — showing the last puzzle)' : ''}`
     : '';

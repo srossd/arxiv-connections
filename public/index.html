@@ -12,7 +12,14 @@
 </head>
 <body>
 <header class="masthead">
-  <button type="button" id="statsBtn" class="statsbtn" aria-haspopup="dialog">Stats</button>
+  <button type="button" id="statsBtn" class="statsbtn" aria-haspopup="dialog">
+    <svg class="statsbtn__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <rect x="1" y="9" width="3.4" height="6" rx="1.2"/>
+      <rect x="6.3" y="5.5" width="3.4" height="9.5" rx="1.2"/>
+      <rect x="11.6" y="2" width="3.4" height="13" rx="1.2"/>
+    </svg>
+    Stats
+  </button>
   <h1>arXiv <span>Connections</span></h1>
   <p class="masthead__sub">
     Find the four groups of papers that share an arXiv category.
@@ -53,9 +60,12 @@
   <h2 id="statsTitle">Your stats</h2>
   <dl class="statsgrid" id="statsGrid"></dl>
   <p class="statsdialog__note" id="statsNote"></p>
-  <form method="dialog">
-    <button class="btn btn--primary" autofocus>Close</button>
-  </form>
+  <div class="statsdialog__foot">
+    <button type="button" id="clearStats" class="linkbtn">Clear my stats</button>
+    <form method="dialog">
+      <button class="btn btn--primary" autofocus>Close</button>
+    </form>
+  </div>
 </dialog>
 
 <footer class="colophon">
