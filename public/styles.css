@@ -465,10 +465,17 @@ body {
 
 .masthead { position: relative; }
 
-.statsbtn {
+/* One flex row rather than two absolutely-positioned buttons: offsetting the
+   second by a hand-measured width collided as soon as the label changed size. */
+.masthead__tools {
   position: absolute;
   top: 1.1rem;
   right: 0;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.statsbtn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -497,7 +504,9 @@ body {
   transform: translateY(0.5px);
 }
 
-.statsdialog {
+/* Shared dialog chrome. Kept separate from .statsdialog so a selector cannot
+   ambiguously match both dialogs. */
+.modal {
   width: min(28rem, calc(100vw - 2rem));
   padding: 1.5rem;
   border: 1px solid var(--line);
@@ -507,9 +516,11 @@ body {
   box-shadow: var(--shadow);
 }
 
-.statsdialog::backdrop { background: rgb(20 20 15 / 45%); }
+.modal::backdrop { background: rgb(20 20 15 / 45%); }
 
-.statsdialog h2 {
+.modal form { display: flex; justify-content: flex-end; }
+
+.modal h2 {
   margin: 0 0 1rem;
   font-size: 1.15rem;
   letter-spacing: -0.01em;
@@ -596,6 +607,33 @@ body {
 }
 
 @media (max-width: 640px) {
-  .statsbtn { top: 0.35rem; padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+  .masthead__tools { top: 0.35rem; }
+  .statsbtn { padding: 0.3rem 0.7rem; font-size: 0.75rem; }
+  .statsbtn--help { padding: 0.3rem 0; }
   .masthead h1 { padding-top: 1.4rem; }
 }
+
+/* ---------- how to play ---------- */
+
+.statsbtn--help {
+  width: 1.95rem;
+  padding: 0.35rem 0;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.howto {
+  margin: 0 0 1.2rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.8rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.howto strong { display: block; }
+
+.statsdialog__actions { display: flex; align-items: center; gap: 0.5rem; }
+
+

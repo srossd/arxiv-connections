@@ -25,6 +25,9 @@ const el = {
   statsNote: document.getElementById('statsNote'),
   clearStats: document.getElementById('clearStats'),
   playAgain: document.getElementById('playAgain'),
+  helpBtn: document.getElementById('helpBtn'),
+  helpDialog: document.getElementById('helpDialog'),
+  shareResult: document.getElementById('shareResult'),
 };
 
 /**
@@ -321,6 +324,7 @@ function renderAll() {
 const storageKey = (day) => `arxiv-connections:${day}`;
 const PLAYER_KEY = 'arxiv-connections:player';
 const RESULTS_KEY = 'arxiv-connections:results';
+const SEEN_HELP_KEY = 'arxiv-connections:seen-help';
 
 /**
  * A random id this browser keeps for itself, so the server can count each
@@ -560,6 +564,57 @@ function shuffleVisible() {
 
 const oneDecimal = (n) => (Math.round(n * 10) / 10).toFixed(1);
 
+/** Today's recorded result, or null if today has not been finished. */
+const todaysResult = () => (state.puzzle ? loadResults()[state.puzzle.day] ?? null : null);
+
+/**
+ * The sentence shared after a game. Built from the *recorded* result, so it
+ * matches the stats rather than a replay.
+ */
+function shareText(row) {
+  const link = `${window.location.origin}${window.location.pathname}`.replace(/\/$/, '');
+  const impostors = `${row.caught}/${row.huntable} impostors`;
+  const mistakes = row.strikes === 0
+    ? 'no mistakes'
+    : `only ${row.strikes} mistake${row.strikes === 1 ? '' : 's'}`;
+
+  // "I found N groups … and found N impostors" repeats itself, so the losing
+  // opening uses a different verb.
+  const opening = row.groups === GROUP_SIZE
+    ? `I solved the arXiv Connections with ${mistakes}`
+    : `I got ${row.groups}/${GROUP_SIZE} groups in the arXiv Connections`;
+  return `${opening}, and found ${impostors}! ${link}`;
+}
+
+async function shareTodaysResult() {
+  const row = todaysResult();
+  if (!row) return;
+  const text = shareText(row);
+
+  // The share sheet where there is one, the clipboard otherwise.
+  try {
+    if (navigator.share) {
+      await navigator.share({ text });
+      return;
+    }
+  } catch {
+    return;   // the user dismissed the sheet; do not then silently copy
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = el.shareResult.textContent;
+    el.shareResult.textContent = 'Copied';
+    el.shareResult.disabled = true;
+    setTimeout(() => {
+      el.shareResult.textContent = original;
+      el.shareResult.disabled = false;
+    }, 1600);
+  } catch {
+    window.prompt('Copy your result:', text);
+  }
+}
+
 function renderStats() {
   const { played, perfect, connectionMistakes, impostorMistakes } = aggregateStats();
 
@@ -588,6 +643,8 @@ function renderStats() {
     : 'Finish today\'s puzzle and your stats will appear here.';
   // Nothing to clear on a fresh device, so do not offer it.
   el.clearStats.hidden = played === 0;
+  // Sharing is about today's game, so it only appears once today is finished.
+  el.shareResult.hidden = todaysResult() === null;
 }
 
 /**
@@ -635,15 +692,39 @@ function clearStats() {
   renderStats();
 }
 
+function showDialog(dialog) {
+  if (typeof dialog.showModal === 'function') dialog.showModal();
+  else dialog.setAttribute('open', '');
+}
+
+/** Opens the rules once, on a first visit, and thereafter only on request. */
+function maybeShowHelp() {
+  let seen = true;
+  try {
+    seen = localStorage.getItem(SEEN_HELP_KEY) === '1';
+  } catch { /* storage blocked: treat as seen so it cannot nag every load */ }
+  if (seen) return;
+  showDialog(el.helpDialog);
+}
+
+// Any dismissal counts — the close button, Esc, or a click outside.
+el.helpDialog.addEventListener('close', () => {
+  try {
+    localStorage.setItem(SEEN_HELP_KEY, '1');
+  } catch { /* nothing to remember it with */ }
+});
+
+el.helpBtn.addEventListener('click', () => showDialog(el.helpDialog));
+
 function openStats() {
   renderStats();
-  if (typeof el.statsDialog.showModal === 'function') el.statsDialog.showModal();
-  else el.statsDialog.setAttribute('open', '');
+  showDialog(el.statsDialog);
 }
 
 el.statsBtn.addEventListener('click', openStats);
 el.clearStats.addEventListener('click', clearStats);
 el.playAgain.addEventListener('click', playAgain);
+el.shareResult.addEventListener('click', shareTodaysResult);
 
 // ------------------------------------------------------------------- start
 
@@ -713,6 +794,7 @@ async function start() {
   renderAll();
 
   loadSplits();
+  maybeShowHelp();
 
   if (roundsComplete()) setStatus(summary(), impostorsCaught() === huntableGroups().length ? 'good' : null);
   else if (isWon()) setStatus(`${WIN_MESSAGE} Now find the impostors.`, 'good');

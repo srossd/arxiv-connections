@@ -12,6 +12,9 @@
 </head>
 <body>
 <header class="masthead">
+  <div class="masthead__tools">
+  <button type="button" id="helpBtn" class="statsbtn statsbtn--help" aria-haspopup="dialog"
+          aria-label="How to play" title="How to play">?</button>
   <button type="button" id="statsBtn" class="statsbtn" aria-haspopup="dialog">
     <svg class="statsbtn__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <rect x="1" y="9" width="3.4" height="6" rx="1.2"/>
@@ -20,6 +23,7 @@
     </svg>
     Stats
   </button>
+  </div>
   <h1>arXiv <span>Connections</span></h1>
   <p class="masthead__sub">
     Find the four groups of papers that share an arXiv category.
@@ -57,15 +61,37 @@
   </div>
 </div>
 
-<dialog id="statsDialog" class="statsdialog" aria-labelledby="statsTitle">
+<dialog id="helpDialog" class="modal" aria-labelledby="helpTitle">
+  <h2 id="helpTitle">How to play</h2>
+  <ol class="howto">
+    <li>
+      <strong>Round 1.</strong>
+      Sort the sixteen papers into the four arXiv categories they were announced in.
+      Four wrong groups and the game ends.
+    </li>
+    <li>
+      <strong>Round 2.</strong>
+      Three papers in each category are real. The fourth is an impostor, invented
+      from that category's own back catalogue. Find it.
+    </li>
+  </ol>
+  <form method="dialog">
+    <button class="btn btn--primary" autofocus>Got it</button>
+  </form>
+</dialog>
+
+<dialog id="statsDialog" class="modal statsdialog" aria-labelledby="statsTitle">
   <h2 id="statsTitle">Your stats</h2>
   <dl class="statsgrid" id="statsGrid"></dl>
   <p class="statsdialog__note" id="statsNote"></p>
   <div class="statsdialog__foot">
     <button type="button" id="clearStats" class="linkbtn">Clear my stats</button>
-    <form method="dialog">
-      <button class="btn btn--primary" autofocus>Close</button>
-    </form>
+    <div class="statsdialog__actions">
+      <button type="button" id="shareResult" class="btn btn--ghost" hidden>Share</button>
+      <form method="dialog">
+        <button class="btn btn--primary" autofocus>Close</button>
+      </form>
+    </div>
   </div>
 </dialog>
 
