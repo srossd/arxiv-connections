@@ -27,6 +27,16 @@ export function puzzleDayFor(now = new Date()) {
   return dayFormatter.format(new Date(now.getTime() - ROLLOVER_HOUR * 3600_000));
 }
 
+/**
+ * The date arXiv labelled a mailing with, e.g. "Fri, 14 Aug 2026 00:00:00 -0400"
+ * -> "2026-08-14". Two puzzles built from the same mailing share this, which is
+ * how a day with no fresh announcement is recognised.
+ */
+export function mailingDayOf(pubDate) {
+  const parsed = new Date(pubDate ?? '');
+  return Number.isNaN(parsed.getTime()) ? null : dayFormatter.format(parsed);
+}
+
 /** Milliseconds until the next 2am Eastern rollover. */
 export function msUntilRollover(now = new Date()) {
   let probe = now.getTime();
@@ -80,17 +90,39 @@ function trimPool(pool, otherIds) {
   return pool.filter((paper) => !paper.categories.some((c) => otherIds.has(canonical(c))));
 }
 
-export async function buildPuzzle(day) {
+/**
+ * Categories to keep out of today's puzzle.
+ *
+ * arXiv does not announce at weekends or on some holidays, so the feed keeps
+ * serving the last mailing. Rather than repeat a puzzle, a day with no fresh
+ * papers builds a new one from that same mailing using categories none of the
+ * earlier puzzles in the run has used — otherwise the third day of a long
+ * weekend could land on the first day's categories again.
+ */
+export function categoriesToAvoid(previous, mailingDay) {
+  const avoid = new Set();
+  if (!mailingDay) return avoid;
+  for (const puzzle of previous) {                  // newest first
+    if (puzzle.mailingDay !== mailingDay) break;    // a fresh mailing ends the run
+    for (const group of puzzle.groups ?? []) avoid.add(group.id);
+  }
+  return avoid;
+}
+
+export async function buildPuzzle(day, { previous = [] } = {}) {
   const rand = rngFrom(`arxiv-connections/${day}`);
   const candidates = shuffled(CATEGORIES, rand);
 
   const chosen = [];  // { category, pool }
   let announcedOn = null;
+  let mailingDay = null;
+  let avoid = new Set();
   let fetches = 0;
 
   for (const category of candidates) {
     if (chosen.length === GROUPS) break;
     if (fetches >= MAX_FEED_FETCHES) break;
+    if (avoid.has(category.id)) continue;
     if (!compatible(category, chosen.map((c) => c.category))) continue;
     // Every group needs a fake, so a category without a compiled grammar can
     // never be used — skip it before spending a feed request on it.
@@ -104,7 +136,18 @@ export async function buildPuzzle(day) {
       console.warn(`[puzzle] skipping ${category.id}: ${error.message}`);
       continue;
     }
-    announcedOn ??= feed.announcedOn;
+    // Every feed carries the same mailing date, so the first one that answers
+    // settles whether today's papers are new.
+    if (announcedOn === null) {
+      announcedOn = feed.announcedOn;
+      mailingDay = mailingDayOf(feed.announcedOn);
+      avoid = categoriesToAvoid(previous, mailingDay);
+      if (avoid.size) {
+        console.log(`[puzzle] ${day}: no fresh mailing (still ${mailingDay}); `
+          + `avoiding ${[...avoid].join(', ')}`);
+      }
+      if (avoid.has(category.id)) continue;   // this one was only fetched to find out
+    }
     if (feed.papers.length < MIN_POOL) continue;
 
     // Tentatively add, then re-check every group under the new category set.
@@ -155,6 +198,12 @@ export async function buildPuzzle(day) {
   return {
     day,
     format: PUZZLE_FORMAT,
+    mailingDay,
+    // What the header shows. Clamped to the puzzle day so it never runs ahead:
+    // arXiv relabels the feed at midnight Eastern while the game rolls over at
+    // 2am, and in that window the mailing is already dated tomorrow.
+    announcedDay: mailingDay && mailingDay < day ? mailingDay : day,
+    freshMailing: !previous.some((p) => p.mailingDay === mailingDay),
     announcedOn,
     generatedAt: new Date().toISOString(),
     groups,
@@ -211,21 +260,41 @@ export class PuzzleStore {
     return puzzle;
   }
 
+  /** Cached day files, newest first. */
+  async #cachedDays() {
+    try {
+      return (await readdir(this.cacheDir))
+        .filter((f) => /^puzzle-\d{4}-\d{2}-\d{2}\.json$/.test(f))
+        .sort()
+        .reverse();
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The puzzles immediately before `day`, newest first, so a build can tell
+   * whether today's mailing is new and which categories the run already used.
+   */
+  async #recentBefore(day, limit = 6) {
+    const out = [];
+    for (const file of await this.#cachedDays()) {
+      if (file >= `puzzle-${day}.json`) continue;
+      try {
+        out.push(JSON.parse(await readFile(path.join(this.cacheDir, file), 'utf8')));
+      } catch { /* skip unreadable files */ }
+      if (out.length === limit) break;
+    }
+    return out;
+  }
+
   /**
    * Most recent *playable* cached puzzle of any day — used if arXiv is
    * unreachable. Walks backwards so a stale-format file does not shadow an
    * older one that the current client can still play.
    */
   async #readNewestCached() {
-    let files;
-    try {
-      files = (await readdir(this.cacheDir))
-        .filter((f) => /^puzzle-\d{4}-\d{2}-\d{2}\.json$/.test(f))
-        .sort();
-    } catch {
-      return null;
-    }
-    for (const file of files.reverse()) {
+    for (const file of await this.#cachedDays()) {
       try {
         const puzzle = JSON.parse(await readFile(path.join(this.cacheDir, file), 'utf8'));
         if (isUsablePuzzle(puzzle)) return puzzle;
@@ -244,7 +313,7 @@ export class PuzzleStore {
 
     if (!this.inFlight.has(day)) {
       const build = (async () => {
-        const puzzle = await buildPuzzle(day);
+        const puzzle = await buildPuzzle(day, { previous: await this.#recentBefore(day) });
         await mkdir(this.cacheDir, { recursive: true });
         await writeFile(this.#pathFor(day), JSON.stringify(puzzle, null, 2));
         return puzzle;

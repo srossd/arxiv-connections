@@ -50,6 +50,38 @@ puzzle for everyone, and the whole thing is one cached file.
 That is typically 4–6 feed requests, made one per second with a descriptive
 User-Agent, and only on the first request of the day.
 
+## Days with no new papers
+
+arXiv does not announce at weekends, or on some holidays. On those days the feed
+keeps serving the last mailing, so building a puzzle the usual way would repeat
+the previous day's.
+
+Each puzzle records the date arXiv labelled its mailing with (`mailingDay`,
+taken from the feed's `pubDate`). When a build finds that date unchanged from
+the previous puzzle, it still builds a fresh game from that same mailing — but
+excludes every category already used since the last fresh mailing:
+
+```
+[puzzle] 2026-08-15: no fresh mailing (still 2026-08-14);
+         avoiding math.FA, cs.HC, cond-mat.mtrl-sci, hep-ph
+```
+
+Excluding the whole run rather than just the day before matters over a long
+weekend: with only the previous day excluded, the third day could land back on
+the first day's categories. Since a paper's primary category puts it in exactly
+one group, different categories also mean entirely different papers — no title
+appears twice in a run. The lookback is capped at six puzzles.
+
+The header credits the mailing, not the calendar: `announcedDay` is the mailing's
+own date, clamped so it can never run ahead of the puzzle day. A Saturday puzzle
+therefore reads "Papers announced Friday…", while in the midnight-to-2am window —
+when arXiv has relabelled the feed but the game has not rolled over — it still
+reads as today.
+
+Puzzles cached before this existed carry no `mailingDay`; they are treated as a
+fresh mailing rather than guessed at, so the first build after the change is
+unconstrained.
+
 ## Caching
 
 The finished puzzle is written to `cache/puzzle-YYYY-MM-DD.json` and served from
@@ -295,9 +327,7 @@ tests can point the fetcher at a stub; leave them unset in normal use.
 
 ## Notes
 
-- **Weekends.** arXiv does not announce on Saturday or Sunday, so weekend puzzles
-  are drawn from the last weekday's listing. The header states the announcement
-  date the papers actually came from.
+- **Weekends and holidays.** See *Days with no new papers* above.
 - **The answers are in the payload.** `/api/puzzle` sends the grouping, and marks
   the fake with `"fake": true`, so both rounds can be checked client-side — the
   same as the NYT puzzle. Anyone reading devtools can see the answers. Moving the
@@ -315,8 +345,11 @@ npm test
 
 Covers the 2 am rollover across EST and EDT, the category rules, TeX folding and
 math-span preservation, the cache/fallback behaviour with the network stubbed
-out, grammar induction (determinism, no regurgitation of real titles, no severed
-math, junk fragments kept out of slots), and the guess tallies (threshold,
+out, the no-new-papers rules (including a full weekend simulated end to end
+against a stub feed, asserting three consecutive days share a mailing yet repeat
+neither a category nor a paper), grammar induction (determinism, no regurgitation
+of real titles, no severed math, junk fragments kept out of slots), and the guess
+tallies (threshold,
 one-vote-per-player, per-group independence, persistence, input validation, and
 concurrent writes). The Redis backend runs the same suite plus two cases only it
 can fail — the same player voting concurrently, and two store instances (standing

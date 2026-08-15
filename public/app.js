@@ -783,7 +783,9 @@ async function start() {
 
   restore(puzzle.day);
 
-  const when = describeDay(puzzle.day);
+  // announcedDay is the mailing's own date, clamped so it never runs ahead of
+  // the puzzle day. On a weekend it is the last weekday arXiv announced on.
+  const when = describeDay(puzzle.announcedDay ?? puzzle.day);
   el.announced.textContent = when
     ? `Papers announced ${when}${puzzle.stale ? ' (arXiv unreachable — showing the last puzzle)' : ''}`
     : '';
