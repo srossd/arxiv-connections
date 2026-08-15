@@ -123,6 +123,10 @@ const CONFLICTS = [
   ['cs.SD', 'eess.AS'], ['hep-th', 'math-ph'], ['hep-th', 'gr-qc'],
   ['gr-qc', 'astro-ph.CO'], ['hep-ph', 'hep-ex'], ['hep-ph', 'nucl-th'],
   ['math-ph', 'math.SG'], ['quant-ph', 'cond-mat.quant-gas'],
+  // Same subject under two archives' names.
+  ['cs.LO', 'math.LO'], ['cs.DM', 'math.CO'], ['cs.CC', 'math.CO'],
+  ['cs.SI', 'physics.soc-ph'], ['cs.GT', 'econ.TH'], ['cs.CE', 'physics.comp-ph'],
+  ['math.NA', 'cs.MS'], ['q-bio.NC', 'physics.bio-ph'],
   ['stat.ME', 'math.PR'], ['stat.TH', 'math.PR'], ['stat.CO', 'math.NA'],
   ['physics.comp-ph', 'math.NA'], ['physics.data-an', 'stat.ME'],
   ['q-bio.QM', 'physics.bio-ph'], ['q-bio.PE', 'physics.soc-ph'],

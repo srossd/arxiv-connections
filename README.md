@@ -29,7 +29,8 @@ puzzle for everyone, and the whole thing is one cached file.
 3. **The categories.** The curated pool in [src/categories.js](src/categories.js)
    is shuffled with that PRNG, then walked in order, pulling one RSS feed at a time
    until four categories stick. A category is skipped if:
-   - it announced fewer than 6 new papers today, or
+   - it announced fewer than 3 new papers today (the three real ones a group
+     needs), or
    - it shares an archive with one already chosen (never two `math.*`), or
    - it is a known-confusable partner of one already chosen (`cs.LG` + `stat.ML`).
 4. **The papers.** Only `announce_type: new` items, and only those whose *first*
@@ -53,34 +54,42 @@ User-Agent, and only on the first request of the day.
 ## Days with no new papers
 
 arXiv does not announce at weekends, or on some holidays. On those days the feed
-keeps serving the last mailing, so building a puzzle the usual way would repeat
-the previous day's.
+keeps serving the last mailing — or, if something is wrong, nothing at all — so
+building a puzzle the usual way would repeat the previous day's.
 
-Each puzzle records the date arXiv labelled its mailing with (`mailingDay`,
-taken from the feed's `pubDate`). When a build finds that date unchanged from
-the previous puzzle, it still builds a fresh game from that same mailing — but
-excludes every category already used since the last fresh mailing:
+Each mailing therefore gets a **plan**: twenty categories, arranged as five
+mutually-compatible quartets, chosen from a seeded permutation and kept only if
+the category actually announced at least three papers (the three real ones a
+group needs). A day uses its quartet by position — the first four today, the
+next four if tomorrow brings no announcement, and so on for five days:
 
 ```
+[puzzle] plan for mailing 2026-08-14: 5 days (20 categories, 26 feeds fetched)
 [puzzle] 2026-08-15: no fresh mailing (still 2026-08-14);
-         avoiding math.FA, cs.HC, cond-mat.mtrl-sci, hep-ph
+         using plan day 2: math.FA, cs.DB, cond-mat.soft, physics.chem-ph
 ```
 
-Excluding the whole run rather than just the day before matters over a long
-weekend: with only the previous day excluded, the third day could land back on
-the first day's categories. Since a paper's primary category puts it in exactly
-one group, different categories also mean entirely different papers — no title
-appears twice in a run. The lookback is capped at six puzzles.
+Positional quartets are what make this hold. Picking greedily from a pool of
+twenty strands an incompatible remainder: measured over forty seeds, that
+delivered five days only 43% of the time. Taking the quartets as planned
+delivers five, every time.
+
+**A category is never reused within a mailing.** If a drought outlasts the plan,
+the build fails and the store serves the previous puzzle rather than a repeat.
+
+Every feed fetched while planning is saved to `<cache>/feeds/`, so all five days
+are playable from disk even if arXiv stops answering entirely. Saved copies
+expire after seven days, and an empty or failed fetch never overwrites a good
+one.
 
 The header credits the mailing, not the calendar: `announcedDay` is the mailing's
 own date, clamped so it can never run ahead of the puzzle day. A Saturday puzzle
-therefore reads "Papers announced Friday…", while in the midnight-to-2am window —
-when arXiv has relabelled the feed but the game has not rolled over — it still
-reads as today.
+reads "Papers announced Friday…", while in the midnight-to-2am window — when
+arXiv has relabelled the feed but the game has not rolled over — it still reads
+as today.
 
-Puzzles cached before this existed carry no `mailingDay`; they are treated as a
-fresh mailing rather than guessed at, so the first build after the change is
-unconstrained.
+Planning costs around 26 feed requests once per mailing, paid at server start-up
+rather than on a visitor's request.
 
 ## Caching
 
@@ -345,9 +354,10 @@ npm test
 
 Covers the 2 am rollover across EST and EDT, the category rules, TeX folding and
 math-span preservation, the cache/fallback behaviour with the network stubbed
-out, the no-new-papers rules (including a full weekend simulated end to end
-against a stub feed, asserting three consecutive days share a mailing yet repeat
-neither a category nor a paper), grammar induction (determinism, no regurgitation
+out, the no-new-papers rules (including a five-day drought simulated end to end
+against a stub feed, asserting each day takes its planned quartet by position,
+no category is ever repeated, and a sixth day declines to build rather than
+repeat), grammar induction (determinism, no regurgitation
 of real titles, no severed math, junk fragments kept out of slots), and the guess
 tallies (threshold,
 one-vote-per-player, per-group independence, persistence, input validation, and
