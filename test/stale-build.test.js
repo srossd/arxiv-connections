@@ -43,6 +43,8 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const { port } = server.address();
 
 process.env.ARXIV_FEED_BASE = `http://127.0.0.1:${port}/`;
+// No listing page here: these tests are about the saved-feed fallback.
+process.env.ARXIV_LISTING_BASE = 'http://127.0.0.1:9/';
 process.env.ARXIV_REQUEST_GAP_MS = '0';
 const { buildPuzzle } = await import('../src/puzzle.js');
 const { FeedCache } = await import('../src/feed-cache.js');

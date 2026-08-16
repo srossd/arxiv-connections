@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { CATEGORIES, compatible } from './categories.js';
-import { fetchCategoryFeed, canonical } from './arxiv.js';
+import { fetchCategoryFeed, fetchCategoryListing, canonical } from './arxiv.js';
 import { hasGrammar, makeFakeTitle } from './fakes.js';
 import { FeedCache, fetchFeedWithFallback } from './feed-cache.js';
 
@@ -109,7 +109,8 @@ function trimPool(pool, otherIds) {
  * Every feed fetched along the way is saved, so the whole plan is playable from
  * disk once arXiv stops answering.
  */
-export async function buildPlan(mailingDay, { rand, feedCache, days = PLAN_DAYS }) {
+export async function buildPlan(mailingDay, { rand, feedCache, days = PLAN_DAYS, exclude = [] }) {
+  const skip = new Set(exclude);
   const pool = shuffled(CATEGORIES, rand);
   const quartets = [];
   let quartet = [];
@@ -118,13 +119,15 @@ export async function buildPlan(mailingDay, { rand, feedCache, days = PLAN_DAYS 
   for (const category of pool) {
     if (quartets.length === days) break;
     if (fetches >= MAX_FEED_FETCHES) break;
+    if (skip.has(category.id)) continue;
     if (!compatible(category, quartet)) continue;
     if (!(await hasGrammar(category.id))) continue;
 
     let feed;
     try {
       fetches++;
-      feed = await fetchFeedWithFallback(category.id, fetchCategoryFeed, feedCache);
+      feed = await fetchFeedWithFallback(
+        category.id, fetchCategoryFeed, feedCache, fetchCategoryListing);
     } catch (error) {
       console.warn(`[puzzle] skipping ${category.id}: ${error.message}`);
       continue;
@@ -158,7 +161,8 @@ export async function buildPuzzle(day, { previous = [], feedCache = null } = {})
   const feedFor = async (categoryId) => {
     if (!feeds.has(categoryId)) {
       fetches++;
-      const feed = await fetchFeedWithFallback(categoryId, fetchCategoryFeed, feedCache);
+      const feed = await fetchFeedWithFallback(
+        categoryId, fetchCategoryFeed, feedCache, fetchCategoryListing);
       if (feed.fromCache) usedSavedFeeds = true;
       // Date the mailing by a feed that actually has papers in it. An empty
       // response still carries a pubDate, and trusting it would label the
@@ -199,15 +203,28 @@ export async function buildPuzzle(day, { previous = [], feedCache = null } = {})
   const planIndex = prior ? (prior.planIndex ?? 0) + 1 : 0;
 
   let plan = prior ? await feedCache?.loadPlan(mailingDay) : null;
+  let planOffset = 0;
   if (!plan) {
-    // A fresh mailing (or a plan we no longer hold): choose and stock one.
-    plan = await buildPlan(mailingDay, { rand: rngFrom(`arxiv-connections/plan/${mailingDay}`), feedCache });
+    // A fresh mailing, or a plan we no longer hold. Rebuilding one mid-run must
+    // not hand back a category the run has already used, so those are excluded
+    // and this day takes the plan's first quartet.
+    const alreadyUsed = previous
+      .filter((p) => p.mailingDay === mailingDay)
+      .flatMap((p) => p.groups.map((g) => g.id));
+    plan = await buildPlan(mailingDay, {
+      rand: rngFrom(`arxiv-connections/plan/${mailingDay}`),
+      feedCache,
+      exclude: alreadyUsed,
+      days: Math.max(1, PLAN_DAYS - planIndex),
+    });
+    planOffset = planIndex;   // the plan starts where this day does
   }
 
-  const wanted = plan.slice(planIndex * GROUPS, planIndex * GROUPS + GROUPS);
+  const slot = planIndex - planOffset;
+  const wanted = plan.slice(slot * GROUPS, slot * GROUPS + GROUPS);
   if (wanted.length < GROUPS) {
     throw new Error(`mailing ${mailingDay} has no day ${planIndex + 1} left in its plan `
-      + `(${plan.length / GROUPS} days planned) for ${day}`);
+      + `(${plan.length / GROUPS + planOffset} days planned) for ${day}`);
   }
   if (planIndex > 0) {
     console.log(`[puzzle] ${day}: no fresh mailing (still ${mailingDay}); `
@@ -275,7 +292,7 @@ export async function buildPuzzle(day, { previous = [], feedCache = null } = {})
     // Which quartet of the mailing's plan this day used; the next day of a
     // drought takes the one after.
     planIndex,
-    planDays: plan.length / GROUPS,
+    planDays: plan.length / GROUPS + planOffset,
     announcedOn,
     generatedAt: new Date().toISOString(),
     groups,

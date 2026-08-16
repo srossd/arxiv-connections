@@ -107,7 +107,7 @@ export class FeedCache {
  * Fetches a category feed, falling back to the last saved copy when the live one
  * is empty or unreachable. Returns the feed plus whether it came from disk.
  */
-export async function fetchFeedWithFallback(categoryId, fetchFeed, cache) {
+export async function fetchFeedWithFallback(categoryId, fetchFeed, cache, fetchListing = null) {
   const useCached = async (reason) => {
     if (!cache) return null;
     const cached = await cache.load(categoryId);
@@ -116,18 +116,35 @@ export async function fetchFeedWithFallback(categoryId, fetchFeed, cache) {
     return { ...cached, fromCache: true };
   };
 
+  // The listing page keeps the last announcement when the feed has been
+  // emptied, and says which day it was — so it is tried before falling back to
+  // a copy on disk, which may be older still.
+  const useListing = async (reason) => {
+    if (!fetchListing) return null;
+    try {
+      const listed = await fetchListing(categoryId);
+      if (!listed.papers.length) return null;
+      console.warn(`[feeds] ${categoryId}: ${reason}; read the listing page instead`);
+      if (cache) await cache.save(categoryId, listed);
+      return { ...listed, fromCache: false, fromListing: true };
+    } catch (error) {
+      console.warn(`[feeds] ${categoryId}: listing page failed (${error.message})`);
+      return null;
+    }
+  };
+
   let live;
   try {
     live = await fetchFeed(categoryId);
   } catch (error) {
-    const fallback = await useCached(`fetch failed (${error.message})`);
-    if (fallback) return fallback;
-    throw error;
+    const reason = `fetch failed (${error.message})`;
+    return (await useListing(reason)) ?? (await useCached(reason)) ?? (() => { throw error; })();
   }
 
   if (live.papers.length > 0) {
     if (cache) await cache.save(categoryId, live);
     return { ...live, fromCache: false };
   }
-  return (await useCached('feed came back empty')) ?? { ...live, fromCache: false };
+  const reason = 'feed came back empty';
+  return (await useListing(reason)) ?? (await useCached(reason)) ?? { ...live, fromCache: false };
 }

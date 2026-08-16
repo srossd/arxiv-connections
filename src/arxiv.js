@@ -167,3 +167,67 @@ export async function fetchCategoryFeed(categoryId) {
   }
   return { announcedOn, papers };
 }
+
+// --- listing pages -----------------------------------------------------------
+
+const LISTING_BASE = process.env.ARXIV_LISTING_BASE ?? 'https://arxiv.org/list/';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const stripTags = (html) => decodeEntities(html.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+
+/**
+ * The daily RSS feed is emptied on days arXiv does not announce — it does not
+ * keep serving the previous mailing, it serves nothing, relabelled with today's
+ * date. The listing page does keep the last announcement, and says which day it
+ * was, so it is the fallback when the feed comes back empty.
+ *
+ * Returns the same shape as `fetchCategoryFeed`.
+ */
+export async function fetchCategoryListing(categoryId) {
+  const html = await politeFetch(`${LISTING_BASE}${encodeURIComponent(categoryId)}/new`);
+  const wanted = canonical(categoryId);
+
+  // "Showing new listings for Friday, 14 August 2026"
+  const heading = html.match(/Showing new listings for\s+\w+,\s+(\d{1,2})\s+(\w+)\s+(\d{4})/);
+  if (!heading) return { announcedOn: null, papers: [] };
+  const [, dayNum, monthName, year] = heading;
+  const month = MONTHS.findIndex((m) => monthName.startsWith(m));
+  if (month < 0) return { announcedOn: null, papers: [] };
+  // Midday UTC lands on the right calendar day in Eastern time year-round.
+  const announcedOn = `${year}-${String(month + 1).padStart(2, '0')}-`
+    + `${String(dayNum).padStart(2, '0')}T12:00:00Z`;
+
+  // Only the "New submissions" block: cross-lists and replacements are other
+  // categories' papers, exactly as announce_type filters them out of the feed.
+  const startsAt = html.search(/<h3>\s*New submissions/i);
+  if (startsAt < 0) return { announcedOn, papers: [] };
+  const endsAt = html.search(/<h3>\s*(Cross|Replacement)/i);
+  const block = html.slice(startsAt, endsAt > startsAt ? endsAt : undefined);
+
+  const papers = [];
+  for (const [, id, body] of block.matchAll(
+    /<a href\s*=\s*"\/abs\/([^"]+)"[\s\S]*?<dd>([\s\S]*?)<\/dd>/g)) {
+    const title = body.match(/class=['"]list-title[^'"]*['"]>([\s\S]*?)<\/div>/);
+    if (!title) continue;
+
+    const subjects = body.match(/class=['"]list-subjects['"]>([\s\S]*?)<\/div>/)?.[1] ?? '';
+    const primary = subjects.match(/class="primary-subject">[^(]*\(([^)]+)\)/)?.[1];
+    // The listing shows every subject; keep the primary first, as the feed does.
+    const others = [...subjects.matchAll(/\(([a-z-]+(?:\.[A-Za-z-]+)?)\)/g)].map((m) => m[1]);
+    const categories = [...new Set([primary, ...others].filter(Boolean).map(canonical))];
+    if (categories[0] !== wanted) continue;
+
+    const authors = [...(body.match(/class=['"]list-authors['"]>([\s\S]*?)<\/div>/)?.[1] ?? '')
+      .matchAll(/<a[^>]*>([\s\S]*?)<\/a>/g)].map((m) => deTeX(stripTags(m[1]))).filter(Boolean);
+
+    papers.push({
+      id,
+      title: cleanTitle(stripTags(title[1].replace(/<span class=['"]descriptor['"]>[^<]*<\/span>/i, ''))),
+      url: `https://arxiv.org/abs/${id}`,
+      authors,
+      categories,
+    });
+  }
+  return { announcedOn, papers };
+}

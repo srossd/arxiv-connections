@@ -6,6 +6,9 @@ import path from 'node:path';
 
 // Point the fetcher at a host that cannot resolve, so every build fails.
 process.env.ARXIV_FEED_BASE = 'http://127.0.0.1:9/';
+// The listing page is a second source; stub it out too, or these tests
+// would quietly reach the real arXiv.
+process.env.ARXIV_LISTING_BASE = 'http://127.0.0.1:9/';
 process.env.ARXIV_MAX_ATTEMPTS = '1';
 process.env.ARXIV_REQUEST_GAP_MS = '0';
 const { PuzzleStore, isUsablePuzzle } = await import('../src/puzzle.js');

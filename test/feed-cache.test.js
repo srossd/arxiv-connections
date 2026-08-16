@@ -108,3 +108,45 @@ test('with no cache configured the live feed is simply returned', async () => {
   assert.equal(result.papers.length, 4);
   assert.equal(result.fromCache, false);
 });
+
+// --- the listing page, which outranks a copy on disk ---
+
+test('an empty feed prefers the listing page over a saved copy', async () => {
+  const cache = await freshCache();
+  await cache.save('hep-th', feed(9, 'Old, 01 Aug 2026 00:00:00 -0400'));
+
+  const listed = feed(5, '2026-08-14T12:00:00Z');
+  const result = await fetchFeedWithFallback('hep-th',
+    async () => feed(0), cache, async () => listed);
+
+  assert.equal(result.fromListing, true);
+  assert.equal(result.fromCache, false);
+  assert.equal(result.papers.length, 5);
+  assert.equal(result.announcedOn, '2026-08-14T12:00:00Z');
+  assert.equal((await cache.load('hep-th')).papers.length, 5, 'and refreshes the copy on disk');
+});
+
+test('an empty listing page falls through to the saved copy', async () => {
+  const cache = await freshCache();
+  await cache.save('hep-th', feed(9));
+  const result = await fetchFeedWithFallback('hep-th',
+    async () => feed(0), cache, async () => feed(0));
+  assert.equal(result.fromCache, true);
+  assert.equal(result.papers.length, 9);
+});
+
+test('a failing listing page falls through rather than throwing', async () => {
+  const cache = await freshCache();
+  await cache.save('hep-th', feed(9));
+  const result = await fetchFeedWithFallback('hep-th',
+    async () => feed(0), cache, async () => { throw new Error('HTTP 500'); });
+  assert.equal(result.fromCache, true);
+});
+
+test('a healthy feed never bothers the listing page', async () => {
+  let asked = false;
+  const result = await fetchFeedWithFallback('hep-th', async () => feed(9), null,
+    async () => { asked = true; return feed(5); });
+  assert.equal(asked, false);
+  assert.equal(result.papers.length, 9);
+});

@@ -53,9 +53,19 @@ User-Agent, and only on the first request of the day.
 
 ## Days with no new papers
 
-arXiv does not announce at weekends, or on some holidays. On those days the feed
-keeps serving the last mailing — or, if something is wrong, nothing at all — so
-building a puzzle the usual way would repeat the previous day's.
+arXiv does not announce at weekends, or on some holidays. On those days the RSS
+feed does **not** keep serving the previous mailing — it is emptied and
+relabelled with today's date:
+
+```
+pubDate: Sat, 15 Aug 2026 00:00:00 -0400
+items: 0    new: 0
+```
+
+The listing page does keep it, and says which day it was
+(`Showing new listings for Friday, 14 August 2026`), so it is the fallback
+whenever a feed comes back empty. Sources are tried in order: the RSS feed, then
+the listing page, then the last copy saved on disk.
 
 Each mailing therefore gets a **plan**: twenty categories, arranged as five
 mutually-compatible quartets, chosen from a seeded permutation and kept only if
@@ -77,10 +87,9 @@ delivers five, every time.
 **A category is never reused within a mailing.** If a drought outlasts the plan,
 the build fails and the store serves the previous puzzle rather than a repeat.
 
-Every feed fetched while planning is saved to `<cache>/feeds/`, so all five days
-are playable from disk even if arXiv stops answering entirely. Saved copies
-expire after seven days, and an empty or failed fetch never overwrites a good
-one.
+Whatever source answers, the result is saved to `<cache>/feeds/`, so the days
+remain playable even if arXiv stops answering entirely. Saved copies expire
+after seven days, and an empty or failed fetch never overwrites a good one.
 
 The header credits the mailing, not the calendar: `announcedDay` is the mailing's
 own date, clamped so it can never run ahead of the puzzle day. A Saturday puzzle
