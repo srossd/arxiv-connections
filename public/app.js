@@ -385,20 +385,20 @@ const isPerfect = (row) =>
 function aggregateStats() {
   const rows = Object.values(loadResults());
   const played = rows.length;
-  const mean = (from, pick) =>
-    (from.length ? from.reduce((sum, row) => sum + pick(row), 0) / from.length : null);
+  const mean = (pick) => (played ? rows.reduce((sum, row) => sum + pick(row), 0) / played : null);
 
-  // Round two is optional, and a day it was skipped is not a day of nought
-  // mistakes — it is no attempt at all. Counting it would quietly flatter the
-  // average, so the denominator here is games where an accusation was made.
-  const hunted = rows.filter((row) => row.accused > 0);
-
+  // Counted as things found rather than mistakes made, so every figure reads
+  // better the more you play. Skipping round two then scores nought impostors
+  // found, which is the honest result — under a mistakes count it scored a
+  // flawless zero, and not trying came out ahead of trying.
+  //
+  // Groups found is counted, not derived: it is not four minus the strikes,
+  // since all four can be found with mistakes along the way.
   return {
     played,
-    hunted: hunted.length,
     perfect: rows.filter(isPerfect).length,
-    connectionMistakes: mean(rows, (row) => row.strikes),
-    impostorMistakes: mean(hunted, (row) => Math.max(0, row.accused - row.caught)),
+    groupsFound: mean((row) => row.groups),
+    impostorsFound: mean((row) => row.caught),
   };
 }
 
@@ -624,15 +624,14 @@ async function shareTodaysResult() {
 }
 
 function renderStats() {
-  const { played, hunted, perfect, connectionMistakes, impostorMistakes } = aggregateStats();
+  const { played, perfect, groupsFound, impostorsFound } = aggregateStats();
+  const average = (value) => (value === null ? '—' : oneDecimal(value));
 
   const rows = [
     ['Perfect games', played ? `${perfect} / ${played}` : '—',
       'Every group found with no mistakes, and every impostor caught'],
-    ['Average connection mistakes', connectionMistakes === null ? '—' : oneDecimal(connectionMistakes),
-      'Wrong groups per game, out of four allowed'],
-    ['Average impostor mistakes', impostorMistakes === null ? '—' : oneDecimal(impostorMistakes),
-      `Wrong accusations per game, over the ${hunted === 1 ? 'one day' : `${hunted} days`} you hunted`],
+    ['Average groups found', average(groupsFound), 'Out of four, per game'],
+    ['Average impostors found', average(impostorsFound), 'Out of four, per game'],
   ];
 
   el.statsGrid.replaceChildren(...rows.flatMap(([label, value, hint]) => {
