@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile, stat } from 'node:fs/promises';
 import { PuzzleStore, puzzleDayFor, msUntilRollover } from './src/puzzle.js';
 import { createGuessStore } from './src/stats.js';
+import { MailLog, readUnsubscribe } from './src/mail-list.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -17,6 +18,8 @@ const store = new PuzzleStore(CACHE_DIR);
 // Redis when REDIS_URL is set, so several machines share one set of tallies;
 // otherwise a file per day beside the cache.
 const guesses = await createGuessStore({ redisUrl: process.env.REDIS_URL, dir: STATS_DIR });
+// Opt-outs must outlive a deploy, so they sit with the other persistent data.
+const mailLog = new MailLog(process.env.MAIL_DIR ?? path.join(CACHE_DIR, 'mail'));
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -134,6 +137,32 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { Allow: 'GET, HEAD, POST' }).end('Method not allowed');
+    return;
+  }
+
+  // The opt-out link carried by the author announcements. The address is in the
+  // link and signed, so no lookup table is needed and the endpoint cannot be
+  // used to enumerate or suppress addresses that were never written to.
+  if (pathname === '/unsubscribe') {
+    const secret = process.env.MAIL_SECRET;
+    const address = secret
+      ? readUnsubscribe({ a: searchParams.get('a'), t: searchParams.get('t') }, secret)
+      : null;
+    if (address) await mailLog.suppress(address);
+
+    const message = address
+      ? `<h1>Done</h1><p><strong>${address.replace(/[<>&]/g, '')}</strong> will not be `
+        + 'contacted by arXiv Connections again.</p>'
+      : '<h1>That link did not work</h1><p>It may have been truncated by a mail client. '
+        + 'Nothing has changed.</p>';
+    const body = `<!doctype html><meta charset="utf-8"><title>arXiv Connections</title>
+<body style="font:16px/1.55 ui-sans-serif,system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">
+${message}<p><a href="/">Back to the puzzle</a></p></body>`;
+    res.writeHead(address ? 200 : 400, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(body);
     return;
   }
 

@@ -255,6 +255,9 @@ export async function buildPuzzle(day, { previous = [], feedCache = null } = {})
   const groups = shuffled(chosen, rand).map(({ category, pool }) => ({
     id: category.id,
     name: category.name,
+    // How many papers the category announced that day, after cross-list
+    // trimming — the denominator for "what were the chances".
+    poolSize: pool.length,
     papers: shuffled(pool, rand).slice(0, REAL_PER_GROUP).map((paper) => ({
       id: paper.id,
       title: paper.title,

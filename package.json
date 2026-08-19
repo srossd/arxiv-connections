@@ -16,6 +16,7 @@
     "check-redis": "node scripts/check-redis.js"
   },
   "dependencies": {
+    "nodemailer": "^9.0.5",
     "redis": "^4.7.1"
   }
 }
