@@ -120,7 +120,7 @@ export async function buildPlan(mailingDay, { rand, feedCache, days = PLAN_DAYS,
     if (quartets.length === days) break;
     if (fetches >= MAX_FEED_FETCHES) break;
     if (skip.has(category.id)) continue;
-    if (!compatible(category, quartet)) continue;
+    if (!compatible(category, quartet.map((m) => m.category))) continue;
     if (!(await hasGrammar(category.id))) continue;
 
     let feed;
@@ -134,14 +134,26 @@ export async function buildPlan(mailingDay, { rand, feedCache, days = PLAN_DAYS,
     }
     if (feed.papers.length < MIN_POOL) continue;   // too thin to fill a group
 
-    quartet.push(category);
+    // A category has to survive the quartet, not just the day. The build drops
+    // papers that cross-list into any of the other three, so a category can
+    // clear the count on its own and fall short once trimmed — math-ph against
+    // hep-th and math.* is the standard way this happens. Check it here, with
+    // the same trimming, or the build inherits an impossible quartet.
+    const tentative = [...quartet, { category, papers: feed.papers }];
+    const ids = new Set(tentative.map((m) => m.category.id));
+    const survives = tentative.every((member) =>
+      trimPool(member.papers, new Set([...ids].filter((id) => id !== member.category.id)))
+        .length >= REAL_PER_GROUP);
+    if (!survives) continue;
+
+    quartet.push({ category, papers: feed.papers });
     if (quartet.length === GROUPS) {
       quartets.push(quartet);
       quartet = [];
     }
   }
 
-  const plan = quartets.flat().map((c) => c.id);
+  const plan = quartets.flat().map((m) => m.category.id);
   console.log(`[puzzle] plan for mailing ${mailingDay}: ${quartets.length} days `
     + `(${plan.length} categories, ${fetches} feeds fetched)`);
   if (feedCache) await feedCache.savePlan(mailingDay, plan);
@@ -202,7 +214,11 @@ export async function buildPuzzle(day, { previous = [], feedCache = null } = {})
   const prior = previous.find((p) => p.mailingDay === mailingDay);
   const planIndex = prior ? (prior.planIndex ?? 0) + 1 : 0;
 
-  let plan = prior ? await feedCache?.loadPlan(mailingDay) : null;
+  // A mailing is planned once. Consulting the saved plan only on later days of
+  // a run meant a fresh mailing re-planned on every request — and if the build
+  // then failed, nothing was cached, so the next request re-fetched all twenty-
+  // odd feeds again.
+  let plan = await feedCache?.loadPlan(mailingDay);
   let planOffset = 0;
   if (!plan) {
     // A fresh mailing, or a plan we no longer hold. Rebuilding one mid-run must

@@ -48,16 +48,12 @@ export function renderAnnouncement({ paper, group, day, links, from }) {
 
   const text = [
     `Your paper "${title}" was featured in today's arXiv Connections,`,
-    `a daily puzzle built from the papers arXiv announced that morning.`,
+    `a daily puzzle built from new papers announced on arXiv.`,
     ``,
     `It was ${chance}`,
     ``,
-    `You have earned a break after getting new research posted — so here is`,
+    `You've earned a break after getting new research posted — go ahead and try`,
     `today's puzzle: ${links.site}`,
-    ``,
-    `Sixteen titles, four arXiv categories. Three papers in each category are`,
-    `real. The fourth is a fake, generated from that category's own back`,
-    `catalogue. Find the groups, then find the impostors.`,
     ``,
     `— ${from.name}`,
     ``,

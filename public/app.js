@@ -794,7 +794,10 @@ async function start() {
   // the puzzle day. On a weekend it is the last weekday arXiv announced on.
   const when = describeDay(puzzle.announcedDay ?? puzzle.day);
   el.announced.textContent = when
-    ? `Papers announced ${when}${puzzle.stale ? ' (arXiv unreachable — showing the last puzzle)' : ''}`
+    // A stale payload means today's puzzle could not be built. arXiv being
+    // unreachable is only one reason among several, and blaming it sent me
+    // looking in the wrong place when the real cause was a bad category pairing.
+    ? `Papers announced ${when}${puzzle.stale ? ' (today’s puzzle isn’t ready — showing the most recent one)' : ''}`
     : '';
 
   el.loading.remove();
