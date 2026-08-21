@@ -17,6 +17,10 @@ import path from 'node:path';
 
 const MAX_AGE_DAYS = 7;
 
+// Bumped whenever the rules for choosing a quartet change, so plans made under
+// the old rules are discarded rather than reused.
+const PLAN_FORMAT = 2;
+
 /** Category ids are filename-safe already, but do not trust that blindly. */
 const fileFor = (dir, categoryId) =>
   path.join(dir, `feed-${categoryId.replace(/[^A-Za-z0-9._-]/g, '_')}.json`);
@@ -79,7 +83,9 @@ export class FeedCache {
       await mkdir(this.dir, { recursive: true });
       const target = path.join(this.dir, `plan-${mailingDay}.json`);
       const temp = `${target}.${process.pid}.tmp`;
-      await writeFile(temp, JSON.stringify({ mailingDay, categories, savedAt: new Date().toISOString() }));
+      await writeFile(temp, JSON.stringify({
+        format: PLAN_FORMAT, mailingDay, categories, savedAt: new Date().toISOString(),
+      }));
       await rename(temp, target);
       return true;
     } catch (error) {
@@ -88,10 +94,19 @@ export class FeedCache {
     }
   }
 
+  /**
+   * A plan is only as good as the rules that built it. Reusing one written by
+   * an older, laxer validator is how a bad quartet outlived the fix for it —
+   * so a plan from a previous format is ignored and the mailing is re-planned.
+   */
   async loadPlan(mailingDay) {
     try {
       const saved = JSON.parse(await readFile(path.join(this.dir, `plan-${mailingDay}.json`), 'utf8'));
-      return Array.isArray(saved?.categories) && saved.categories.length ? saved.categories : null;
+      if (saved?.format !== PLAN_FORMAT) {
+        console.warn(`[feeds] plan for ${mailingDay} predates the current rules — re-planning`);
+        return null;
+      }
+      return Array.isArray(saved.categories) && saved.categories.length ? saved.categories : null;
     } catch {
       return null;
     }

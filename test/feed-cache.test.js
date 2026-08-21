@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FeedCache, fetchFeedWithFallback } from '../src/feed-cache.js';
@@ -149,4 +149,26 @@ test('a healthy feed never bothers the listing page', async () => {
     async () => { asked = true; return feed(5); });
   assert.equal(asked, false);
   assert.equal(result.papers.length, 9);
+});
+
+// --- the plan, and why it carries a version ---
+
+test('a plan round-trips', async () => {
+  const cache = await freshCache();
+  await cache.savePlan('2026-08-20', ['hep-th', 'cs.SD', 'math.NT', 'q-bio.NC']);
+  assert.deepEqual(await cache.loadPlan('2026-08-20'),
+    ['hep-th', 'cs.SD', 'math.NT', 'q-bio.NC']);
+  assert.equal(await cache.loadPlan('2026-08-21'), null, 'a day with no plan');
+});
+
+test('a plan written under older rules is discarded, not reused', async () => {
+  const cache = await freshCache();
+  // Exactly what the previous release wrote: no format stamp. It held a
+  // quartet the build then refused, and reusing it outlived the fix.
+  await writeFile(path.join(cache.dir, 'plan-2026-08-20.json'), JSON.stringify({
+    mailingDay: '2026-08-20',
+    categories: ['math-ph', 'cs.SD', 'q-bio.NC', 'astro-ph.GA'],
+    savedAt: new Date().toISOString(),
+  }));
+  assert.equal(await cache.loadPlan('2026-08-20'), null, 'ignored, so the mailing is re-planned');
 });
